@@ -1,0 +1,81 @@
+#!/bin/sh
+# Runs a harness with official images only: no local build, no path on this
+# machine, nothing to install but Docker.
+#
+#   ./sandbox install <harness>
+#   ./sandbox serve   <harness> [port]
+#   ./sandbox stop    <harness>
+#   ./sandbox pay     <harness>          # worldline-sips only: a real browser
+#
+# Credentials come from the environment. Copy <harness>/.env.example to
+# <harness>/.env and fill it in; it is gitignored, and that is deliberate.
+
+set -e
+
+PHP_IMAGE=php:8.5-cli
+COMPOSER_IMAGE=composer:2
+PUPPETEER_IMAGE=ghcr.io/puppeteer/puppeteer:latest
+
+action=$1
+harness=$2
+port=${3:-8457}
+root=$(cd "$(dirname "$0")" && pwd)
+dir="$root/$harness"
+
+[ -d "$dir" ] || { echo "usage: $0 <install|serve|stop|simulate|services|pay> <monetico|worldline-sips> [port]"; exit 1; }
+
+env_args=""
+if [ -f "$dir/.env" ]; then
+    env_args="--env-file $dir/.env"
+fi
+
+case "$action" in
+install)
+    docker run --rm --user "$(id -u):$(id -g)" \
+        -e COMPOSER_HOME=/tmp/composer \
+        -v "$dir":/app -w /app "$COMPOSER_IMAGE" install --no-interaction
+    ;;
+serve)
+    mkdir -p "$dir/var"
+    docker rm -f "sandbox-$harness" >/dev/null 2>&1 || true
+    docker run -d --rm --name "sandbox-$harness" --network host \
+        --user "$(id -u):$(id -g)" $env_args \
+        -e SANDBOX_BASE_URL="${SANDBOX_BASE_URL:-http://127.0.0.1:$port}" \
+        -v "$dir":/app -w /app "$PHP_IMAGE" \
+        php -S "127.0.0.1:$port" -t public
+    sleep 1
+    echo "$harness on http://127.0.0.1:$port"
+    ;;
+stop)
+    docker rm -f "sandbox-$harness" >/dev/null 2>&1 && echo "stopped" || echo "not running"
+    ;;
+simulate)
+    # The platform's side, for a harness whose notification URL the real
+    # platform cannot reach from the internet.
+    docker run --rm --network host --user "$(id -u):$(id -g)" $env_args \
+        -e SANDBOX_BASE_URL="${SANDBOX_BASE_URL:-http://127.0.0.1:$port}" \
+        -v "$dir":/app -w /app "$PHP_IMAGE" php simulate.php "${CASE:-accepted}"
+    ;;
+services)
+    # The two server-to-server services, called for real with a terminal that
+    # is in nobody's contract: nothing can be captured or refunded, and the
+    # transport, the seal and the reply parsing are exercised against the
+    # actual platform.
+    docker run --rm --network host --user "$(id -u):$(id -g)" $env_args \
+        -v "$dir":/app -w /app "$PHP_IMAGE" php services.php
+    ;;
+pay)
+    mkdir -p "$dir/shots"
+    chmod 777 "$dir/shots"
+    docker run --rm --network host \
+        -e SANDBOX_BASE_URL="${SANDBOX_BASE_URL:-http://127.0.0.1:$port}" \
+        -e SIPS_CARD -e SIPS_3DS -e SIPS_TAG \
+        -v "$dir/browser":/home/pptruser/browser:ro \
+        -v "$dir/shots":/home/pptruser/shots \
+        -w /home/pptruser "$PUPPETEER_IMAGE" node browser/pay.js
+    ;;
+*)
+    echo "usage: $0 <install|serve|stop|simulate|services|pay> <monetico|worldline-sips> [port]"
+    exit 1
+    ;;
+esac

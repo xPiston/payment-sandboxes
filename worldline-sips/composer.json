@@ -1,0 +1,12 @@
+{
+    "name": "sandbox/worldline-sips",
+    "description": "A Worldline Sips harness: a complete payment, in a real browser, against the open simulator.",
+    "require": {
+        "php": "^8.2",
+        "xpiston/worldline-sips": "^0.1",
+        "symfony/http-client": "^7.0",
+        "php-http/discovery": "^1.19",
+        "nyholm/psr7": "^1.8"
+    },
+    "config": { "allow-plugins": { "php-http/discovery": true } }
+}

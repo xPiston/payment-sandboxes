@@ -1,0 +1,9 @@
+# Never. These directories are where credentials live.
+.env
+.env.*
+!.env.example
+
+/*/vendor/
+/*/composer.lock
+/*/var/
+/*/shots/
